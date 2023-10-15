@@ -1,5 +1,3 @@
-import processing.pdf.*;
-
 int startX , startY, endX, endY;
 int red , green, blue;
 
@@ -13,13 +11,13 @@ void setup() {
   green = 50;
   blue = 120;
   
-  strokeWeight(4);  // Default
-  
   size(800,1000);
-  beginRecord(PDF, "filename.pdf");
+  
+  pixelDensity(4);
 }
 
 void draw() {  
+  strokeWeight(4);  // Default
   stroke(red, green, blue);
   line(startX, startY, endX, endY); 
   
@@ -53,5 +51,5 @@ void draw() {
 
 
 void keyPressed() {
-  endRecord();
+  save("diagonal.tif");
 }
