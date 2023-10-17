@@ -1,10 +1,6 @@
-import processing.video.*;
-
-Capture cam;
-
 PImage img;
 
-int pixelSize = 10;
+int pixelSize = 25;
 
 void setup() {
   size(1080, 1440);
@@ -22,11 +18,10 @@ void draw() {
 
 void updatePixel() {
   noStroke();
-
   for (int x = 0; x < width; x += pixelSize) {
     for (int y = 0; y < height; y += pixelSize) {
-      fill(img.get(x, y));
-      //fillWithAverageColor(x, y, pixelSize);
+      //fill(img.get(x, y));
+      fillWithAverageColor(x, y, pixelSize);
       rect(x, y, pixelSize, pixelSize);
     }
   }
@@ -55,4 +50,7 @@ void fillWithAverageColor(int startingX, int startingY, int pixelSize) {
   
   fill(totalRed, totalGreen, totalBlue);
   println(totalGreen);
+}
+void mousePressed(){
+ saveFrame(); 
 }
