@@ -16,6 +16,7 @@ const HAND_CONNECTIONS = [
   [0, 17], [5, 9], [9, 13], [13, 17]        // Palm
 ];
 
+// Global variables for hand tracking
 const video = document.getElementById("webcam");
 const canvasElement = document.createElement("canvas");
 const canvasCtx = canvasElement.getContext("2d");
@@ -26,6 +27,24 @@ let runningMode = "VIDEO";
 let results = undefined;
 let lastVideoTime = -1;
 var mirror = true;
+
+// Global P5 variables for hand states and positions
+let handStates = {
+  left: {
+    isOpen: false,
+    position: { x: 0, y: 0 },
+    gesture: "",
+    confidence: 0,
+    landmarks: []
+  },
+  right: {
+    isOpen: false,
+    position: { x: 0, y: 0 },
+    gesture: "",
+    confidence: 0,
+    landmarks: []
+  }
+};
 
 // Initialize video dimensions
 if (video) {
@@ -87,7 +106,7 @@ function getHandOpenStatus(gestureName) {
   if (closedGestures.includes(gestureName)) return false;
   
   // Default to closed if unknown
-  return true;
+  return false;
 }
 
 // Main prediction function
@@ -104,6 +123,10 @@ async function predictWebcam() {
     try {
       const nowInMs = Date.now();
       results = gestureRecognizer.recognizeForVideo(video, nowInMs);
+      
+      // Update global hand states
+      updateHandStates(results);
+      
     } catch (error) {
       console.error("Error in gesture recognition:", error);
     }
@@ -113,7 +136,40 @@ async function predictWebcam() {
   requestAnimationFrame(predictWebcam);
 }
 
-// P5.js sketch for visualization
+// Function to update global hand states based on recognition results
+function updateHandStates(results) {
+  if (!results || !results.landmarks) return;
+  
+  // Reset hand states for cases where hands disappear
+  handStates.left.landmarks = [];
+  handStates.right.landmarks = [];
+  
+  for (let i = 0; i < results.landmarks.length; i++) {
+    if (!results.handednesses || !results.handednesses[i] || !results.handednesses[i][0]) continue;
+    
+    const handedness = results.handednesses[i][0].displayName.toLowerCase();
+    const landmarks = results.landmarks[i];
+    const wrist = landmarks[0]; // Wrist is always index 0
+    
+    // Store landmarks
+    handStates[handedness].landmarks = landmarks;
+    
+    // Update position (adjusted for mirroring)
+    let wristX = wrist.x;
+    if (mirror) wristX = 1 - wristX;
+    handStates[handedness].position = { x: wristX, y: wrist.y };
+    
+    // Update gesture information if available
+    if (results.gestures && results.gestures.length > i && results.gestures[i].length > 0) {
+      const topGesture = results.gestures[i][0];
+      handStates[handedness].gesture = topGesture.categoryName;
+      handStates[handedness].confidence = topGesture.score;
+      handStates[handedness].isOpen = getHandOpenStatus(topGesture.categoryName);
+    }
+  }
+}
+
+// P5.js sketch
 new p5(p5js => {  
   let webcamCanvas;
 
@@ -126,108 +182,111 @@ new p5(p5js => {
     p5js.clear();
     
     // Display webcam video
-    if (video && video.readyState >= 2) {
-      webcamCanvas.clear();
-      webcamCanvas.drawingContext.drawImage(video, 0, 0, webcamCanvas.width, webcamCanvas.height);
-      
-      if (mirror) {
-        p5js.push();
-        p5js.translate(p5js.width, 0);
-        p5js.scale(-1, 1);
-        p5js.image(webcamCanvas, 0, 0, p5js.width, p5js.height);
-        p5js.pop();
-      } else {
-        p5js.image(webcamCanvas, 0, 0, p5js.width, p5js.height);
-      }
-    }
+    drawWebcamFeed(p5js, webcamCanvas);
     
-    // Process and display gesture recognition results
+    // Process and display hand tracking results
     if (results && results.landmarks) {
-      // Draw hand landmarks
       for (let i = 0; i < results.landmarks.length; i++) {
-        const landmarks = results.landmarks[i];
+        if (!results.handednesses || !results.handednesses[i] || !results.handednesses[i][0]) continue;
         
-        // Draw landmarks as red dots
-        p5js.fill(255, 0, 0);
-        p5js.stroke(0);
-        p5js.strokeWeight(2);
-        
-        landmarks.forEach((pt) => {
-          let x = pt.x;
-          if (mirror) x = 1 - x;
-          p5js.ellipse(x * p5js.width, pt.y * p5js.height, 10, 10);
-        });
-        
-        // Draw connections between landmarks using our defined HAND_CONNECTIONS
-        p5js.stroke(0, 255, 0);
-        p5js.strokeWeight(3);
-        
-        // Using our manually defined hand connections
-        HAND_CONNECTIONS.forEach(conn => {
-          const start = conn[0];
-          const end = conn[1];
-          
-          if (landmarks[start] && landmarks[end]) {
-            let startX = landmarks[start].x;
-            let endX = landmarks[end].x;
-            
-            if (mirror) {
-              startX = 1 - startX;
-              endX = 1 - endX;
-            }
-            
-            p5js.line(
-              startX * p5js.width, landmarks[start].y * p5js.height,
-              endX * p5js.width, landmarks[end].y * p5js.height
-            );
-          }
-        });
-        
-        // Display gesture information
-        if (results.gestures && results.gestures.length > i) {
-          const gesture = results.gestures[i];
-          if (gesture && gesture.length > 0) {
-            // Get the top gesture (highest confidence)
-            const topGesture = gesture[0];
-            const handedness = results.handednesses[i][0].displayName;
-            
-            // Get wrist position for text placement
-            const wrist = landmarks[0];
-            let wristX = wrist.x;
-            if (mirror) wristX = 1 - wristX;
-            
-            // Determine if hand is open or closed
-            const isOpen = getHandOpenStatus(topGesture.categoryName);
-            
-            // Display gesture information
-            p5js.fill(255);
-            p5js.noStroke();
-            p5js.textSize(20);
-            p5js.textAlign(p5js.CENTER);
-            
-            // Display gesture name and confidence
-            p5js.text(
-              `${topGesture.categoryName} (${(topGesture.score * 100).toFixed(0)}%)`,
-              wristX * p5js.width,
-              wrist.y * p5js.height - 60
-            );
-            
-            // Display handedness
-            p5js.text(
-              handedness,
-              wristX * p5js.width, 
-              wrist.y * p5js.height - 30
-            );
-            
-            // Display open/closed status
-            p5js.text(
-              isOpen ? "OPEN" : "CLOSED",
-              wristX * p5js.width,
-              wrist.y * p5js.height - 90
-            );
-          }
-        }
+        const handedness = results.handednesses[i][0].displayName.toLowerCase();
+        drawHandLandmarks(p5js, handStates[handedness].landmarks, handedness);
+        drawHandInfo(p5js, handedness);
       }
     }
   };
+  
+  // Function to draw webcam feed
+  function drawWebcamFeed(p, canvas) {
+    if (!video || video.readyState < 2) return;
+    
+    canvas.clear();
+    canvas.drawingContext.drawImage(video, 0, 0, canvas.width, canvas.height);
+    
+    if (mirror) {
+      p.push();
+      p.translate(p.width, 0);
+      p.scale(-1, 1);
+      p.image(canvas, 0, 0, p.width, p.height);
+      p.pop();
+    } else {
+      p.image(canvas, 0, 0, p.width, p.height);
+    }
+  }
+  
+  // Function to draw hand landmarks and connections
+  function drawHandLandmarks(p, landmarks, handedness) {
+    if (!landmarks || landmarks.length === 0) return;
+    
+    // Draw landmarks as dots
+    p.fill(255, 0, 0);
+    p.stroke(0);
+    p.strokeWeight(2);
+    
+    landmarks.forEach((pt) => {
+      let x = pt.x;
+      if (mirror) x = 1 - x;
+      p.ellipse(x * p.width, pt.y * p.height, 10, 10);
+    });
+    
+    // Draw connections between landmarks
+    p.stroke(0, 255, 0);
+    p.strokeWeight(3);
+    
+    HAND_CONNECTIONS.forEach(conn => {
+      const start = conn[0];
+      const end = conn[1];
+      
+      if (landmarks[start] && landmarks[end]) {
+        let startX = landmarks[start].x;
+        let endX = landmarks[end].x;
+        
+        if (mirror) {
+          startX = 1 - startX;
+          endX = 1 - endX;
+        }
+        
+        p.line(
+          startX * p.width, landmarks[start].y * p.height,
+          endX * p.width, landmarks[end].y * p.height
+        );
+      }
+    });
+  }
+  
+  // Function to draw hand information (gesture, confidence, open/closed status)
+  function drawHandInfo(p, handedness) {
+    const handState = handStates[handedness];
+    if (!handState.landmarks || handState.landmarks.length === 0) return;
+    
+    const position = handState.position;
+    
+    // Display hand information
+    p.fill(255);
+    p.noStroke();
+    p.textSize(20);
+    p.textAlign(p.CENTER);
+    
+    // Display gesture name and confidence
+    p.text(
+      `${handState.gesture} (${(handState.confidence * 100).toFixed(0)}%)`,
+      position.x * p.width,
+      position.y * p.height - 60
+    );
+    
+    // Display handedness
+    p.text(
+      handedness.toUpperCase(),
+      position.x * p.width, 
+      position.y * p.height - 30
+    );
+    
+    // Display open/closed status
+    p.text(
+      handState.isOpen ? "OPEN" : "CLOSED",
+      position.x * p.width,
+      position.y * p.height - 90
+    );
+  }
+  
 }, document.getElementById('sketch'));
